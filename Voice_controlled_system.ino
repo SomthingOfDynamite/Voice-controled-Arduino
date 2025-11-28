@@ -6,7 +6,8 @@ const int sw_led = A0;
 bool last_led_sw = HIGH;
 const int led_pin = 2;
 bool led_state = false;
-int led_mode = 0;  // 0=solid, 1=fast blink, 2=slow blink
+// 0=solid, 1=fast blink, 2=slow blink
+int led_mode = 0;
 unsigned long led_prevMillis = 0;
 
 // LCD
@@ -14,15 +15,17 @@ LiquidCrystal lcd(13, 12, 11, 10, 9, 8);
 const int sw_lcd = A1;
 bool last_lcd_sw = HIGH;
 bool lcd_state = false;
-int lcd_mode = 0;  // 0=welcome, 1=all ok, 2=resetting
+// 0=welcome, 1=all ok, 2=resetting
+int lcd_mode = 0;
 unsigned long lcd_prevMillis = 0;
 
 // DC motor
 const int sw_motor = A2;
 bool last_motor_sw = HIGH;
-const int motor_pin = 11;
+const int motor_pin = 3;
 bool motor_state = false;
-int motor_mode = 0;  // 0=slow, 1=medium, 2=fast
+// 0=slow, 1=medium, 2=fast
+int motor_mode = 0;
 
 // Micro servo
 Servo servo;
@@ -30,17 +33,18 @@ const int sw_servo = A3;
 bool last_servo_sw = HIGH;
 const int servo_pin = 7;
 bool servo_state = false;
-int servo_mode = 0; // 0=45°, 1=90°, 2=180°
+// 0=45°, 1=90°, 2=180°
+int servo_mode = 0;
 
-// Action button
+// Button
 const int btn_select = A4;
 bool lastbtn5_state = HIGH;
 
  // Mode Select button
 const int btn_function = A5;  
 bool lastbtn6_state = HIGH;
-
-int selected_component = -1;  // stores index of selected ON component
+// stores index of selected ON component
+int selected_component = -1;
 
 
 // Setup
@@ -67,23 +71,25 @@ void setup() {
 
 // Main loop
 void loop() {
+  //listen for voice commands
+  readSerialCommands();
 
   // Component toggles
-  checkToggleButton(sw_led, last_led_sw, led_state, 0);
-  checkToggleButton(sw_lcd, last_lcd_sw, lcd_state, 1);
-  checkToggleButton(sw_motor, last_motor_sw, motor_state, 2);
-  checkToggleButton(sw_servo, last_servo_sw, servo_state, 3);
+  checkSwitch(sw_led, led_state, 0);
+  checkSwitch(sw_lcd, lcd_state, 1);
+  checkSwitch(sw_motor, motor_state, 2);
+  checkSwitch(sw_servo, servo_state, 3);
 
 
-  // Action Button
+  // function Button
   bool btn5_state = digitalRead(btn_select);
   if(btn5_state == LOW && lastbtn5_state == HIGH && selected_component != -1){
-    cycleAction(selected_component);
+    cycleFunction(selected_component);
   }
   lastbtn5_state = btn5_state;
 
 
-  // Mode Select Button
+  // mode Select Button
   bool btn6_state = digitalRead(btn_function);
   if(btn6_state == LOW && lastbtn6_state == HIGH && selected_component != -1){
     cycleComponentSelection();
@@ -91,49 +97,71 @@ void loop() {
   lastbtn6_state = btn6_state;
 
 
-  // Actions
+  // functions
   updateLED();
   updateLCD();
   updateMotor();
   updateServo();
 }
 
+void readSerialCommands() {
+    if (Serial.available()) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
 
+        if (cmd == "LED_ON") { digitalWrite(led_pin, HIGH); }
+        else if (cmd == "LED_OFF") { digitalWrite(led_pin, LOW); }
 
-// Button toggle on/off
-void checkToggleButton(int pin, bool &lastState, bool &stateVar, int componentID){
-  bool curr = digitalRead(pin);
-  if(curr == LOW && lastState == HIGH){
-    stateVar = !stateVar;
-    if(stateVar){
-      selected_component = componentID; // auto-select the one turned on
-      applyDefault(componentID);
+        else if (cmd == "LCD_ON") { lcd_state = true; lcd_mode = 0; }
+        else if (cmd == "LCD_OFF") { lcd_state = false; lcd.clear(); }
+
+        else if (cmd == "MOTOR_ON") { digitalWrite(motor_pin, HIGH); }
+        else if (cmd == "MOTOR_OFF") { digitalWrite(motor_pin, LOW); }
+
+        else if (cmd == "SERVO_ON") { servo.write(90); }
+        else if (cmd == "SERVO_OFF") { servo.write(0); }
     }
-    else {
-      shutdownComponent(componentID);
-    }
-  }
-  lastState = curr;
 }
 
-void shutdownComponent(int comp){
-  switch(comp){
-    case 0: // LED
+// switch on/off
+void checkSwitch(int pin, bool &stateVar, int componentID){
+  int curr = digitalRead(pin);
+  //switch on
+  if(curr == LOW && !stateVar){ 
+    stateVar = true;
+    selected_component = componentID;
+    applyDefault(componentID);
+  }
+  // switch off
+  else if(curr == HIGH && stateVar) {
+    stateVar = false;
+    shutdownComponent(componentID);
+    if(selected_component == componentID) {}
+      selected_component = -1;
+    }
+  }
+}
+
+// turn off component
+void shutdownComponent(int comp) {
+  switch(comp) {
+    // LED
+    case 0:
       digitalWrite(led_pin, LOW);
       led_mode = 0;
       break;
-
-    case 1: // LCD
+    // LCD
+    case 1:
       lcd.clear();
       lcd.noDisplay();
       break;
-
-    case 2: // Motor
+    // Motor
+    case 2:
       analogWrite(motor_pin, 0);
       motor_mode = 0;
       break;
-
-    case 3: // Servo
+    // Servo
+    case 3:
       servo.write(0);
       servo_mode = 0;
       break;
@@ -141,7 +169,7 @@ void shutdownComponent(int comp){
 }
 
 
-// Default states
+// default states
 void applyDefault(int comp){
   switch(comp){
     case 0: 
@@ -167,10 +195,10 @@ void applyDefault(int comp){
 
 
 
-// Mode Button: select component
+// mode Button: select component
 void cycleComponentSelection(){
   int start = selected_component;
-  for(int i = 0; i < 5; i++){ // 0..4 (including All)
+  for(int i = 0; i < 5; i++){
     start++;
     if(start > 4) start = 0;
 
@@ -185,13 +213,13 @@ void cycleComponentSelection(){
     selected_component = start;
     return;
   }
-  // none active if all are off
+  // none if all components are off
   selected_component = -1;
 }
 
 
-// Action button: cycle actions
-void cycleAction(int comp){
+// cycle functions after buttton press
+void cycleFunction(int comp){
   if(comp == 4){
     if(led_state){
       led_mode = (led_mode + 1) % 3;
@@ -205,7 +233,9 @@ void cycleAction(int comp){
     if(servo_state){
       servo_mode = (servo_mode + 1) % 3;
     }
-  } else { // Single component
+  } 
+  // single component
+  else {
     switch(comp){
       case 0: 
         led_mode = (led_mode + 1) % 3; break;
@@ -225,9 +255,7 @@ void cycleAction(int comp){
 // LED events
 void updateLED(){
   if(!led_state) return;
-
   unsigned long now = millis();
-
   if(led_mode == 0){
     digitalWrite(led_pin, HIGH);
   }
@@ -287,17 +315,16 @@ void updateMotor(){
 }
 
 
-
 // SERVO events
 void updateServo(){
   if(!servo_state) {
     return;
   }
   if(servo_mode == 0) {
-    servo.write(45); 
+    servo.write(90); 
   }
   if(servo_mode == 1) {
-    servo.write(90);
+    servo.write(135);
   }
   if(servo_mode == 2) {
     servo.write(180);
